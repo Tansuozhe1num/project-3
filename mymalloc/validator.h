@@ -49,39 +49,68 @@ typedef struct range_t {
 // we create a range struct for this block and add it to the range list.
 static int add_range(const malloc_impl_t* impl, range_t** ranges, char* lo,
                      int size, int tracenum, int opnum) {
-  //  char *hi = lo + size - 1;
-  //  range_t *p = NULL;
-
-  // You can use this as a buffer for writing messages with sprintf.
-  // char msg[MAXLINE];
+  char* hi = lo + size - 1;
+  range_t* p = NULL;
+  char msg[MAXLINE];
+  range_t* new_range = NULL;
 
   assert(size > 0);
 
   // Payload addresses must be R_ALIGNMENT-byte aligned
-  // TODO(project3): YOUR CODE HERE
+  if (!IS_ALIGNED(lo)) {
+    sprintf(msg, "Payload address (%p) is not aligned to %d bytes", lo, R_ALIGNMENT);
+    malloc_error(tracenum, opnum, msg);
+    return 0;
+  }
 
   // The payload must lie within the extent of the heap
-  // TODO(project3): YOUR CODE HERE
+  if (lo < (char*)impl->heap_lo() || hi > (char*)impl->heap_hi()) {
+    sprintf(msg, "Payload (%p:%p) lies outside heap (%p:%p)",
+            lo, hi, impl->heap_lo(), impl->heap_hi());
+    malloc_error(tracenum, opnum, msg);
+    return 0;
+  }
 
   // The payload must not overlap any other payloads
-  // TODO(project3): YOUR CODE HERE
+  for (p = *ranges; p != NULL; p = p->next) {
+    if (!(hi < p->lo || lo > p->hi)) {
+      sprintf(msg, "Payload (%p:%p) overlaps another payload (%p:%p)",
+              lo, hi, p->lo, p->hi);
+      malloc_error(tracenum, opnum, msg);
+      return 0;
+    }
+  }
 
   // Everything looks OK, so remember the extent of this block by creating a
   // range struct and adding it the range list.
-  // TODO(project3):  YOUR CODE HERE
+  new_range = (range_t*)malloc(sizeof(range_t));
+  if (new_range == NULL) {
+    unix_error("malloc failed in add_range");
+  }
+  new_range->lo = lo;
+  new_range->hi = hi;
+  new_range->next = *ranges;
+  *ranges = new_range;
 
   return 1;
 }
 
 // remove_range - Free the range record of block whose payload starts at lo
 static void remove_range(range_t** ranges, char* lo) {
-  //  range_t *p = NULL;
-  //  range_t **prevpp = ranges;
+  range_t* p = NULL;
+  range_t** prevpp = ranges;
 
   // Iterate the linked list until you find the range with a matching lo
   // payload and remove it.  Remember to properly handle the case where the
   // payload is in the first node, and to free the node after unlinking it.
-  // TODO(project3): YOUR CODE HERE
+  for (p = *ranges; p != NULL; p = p->next) {
+    if (p->lo == lo) {
+      *prevpp = p->next;
+      free(p);
+      return;
+    }
+    prevpp = &(p->next);
+  }
 }
 
 // clear_ranges - free all of the range records for a trace
@@ -139,7 +168,9 @@ int eval_mm_valid(const malloc_impl_t* impl, trace_t* trace, int tracenum) {
 
       // Fill the allocated region with some unique data that you can check
       // for if the region is copied via realloc.
-      // TODO(project3): YOUR CODE HERE
+      for (int j = 0; j < size; j++) {
+        p[j] = (char)(index ^ j);
+      }
 
       // Remember region
       trace->blocks[index] = p;
@@ -170,7 +201,15 @@ int eval_mm_valid(const malloc_impl_t* impl, trace_t* trace, int tracenum) {
       if (size < oldsize) {
         oldsize = size;
       }
-      // TODO(project3): YOUR CODE HERE
+      for (int j = 0; j < oldsize; j++) {
+        if (newp[j] != (char)(index ^ j)) {
+          malloc_error(tracenum, i, "realloc did not preserve the old payload");
+          return 0;
+        }
+      }
+      for (int j = 0; j < size; j++) {
+        newp[j] = (char)(index ^ j);
+      }
 
       // Remember region
       trace->blocks[index] = newp;
